@@ -5,8 +5,8 @@ Database connection helper.
 
 Usage:
     db = Database("billing.db")
-    db.init_schema()                 # one-time setup
-    with db.transaction() as conn:   # for multi-statement atomic work
+    db.init_schema()
+    with db.transaction() as conn:
         conn.execute("INSERT ...")
         conn.execute("INSERT ...")
 """
@@ -25,26 +25,32 @@ class Database:
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
 
-    def connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
-        return conn
+
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def init_schema(self) -> None:
-        """Create all tables (idempotent — uses CREATE TABLE IF NOT EXISTS)."""
         sql = SCHEMA_PATH.read_text(encoding="utf-8")
         with self.connect() as conn:
             conn.executescript(sql)
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        """Context manager for atomic multi-statement work.
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
 
-        Uses BEGIN IMMEDIATE so we acquire a write lock up front and avoid
-        the silent-rollback foot-gun where two writers see overlapping reads.
-        """
-        conn = self.connect()
         try:
             conn.execute("BEGIN IMMEDIATE;")
             yield conn

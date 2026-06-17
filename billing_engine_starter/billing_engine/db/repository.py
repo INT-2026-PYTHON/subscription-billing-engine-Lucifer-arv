@@ -1,27 +1,12 @@
-"""
-Repositories — the ONLY place SQL lives.
+"""Tests for repositories — fully implemented. Uses `db` fixture from conftest.py."""
 
-Each repository wraps the Database connection and exposes methods that
-take/return domain dataclasses (defined in billing_engine/models/).
+from datetime import date
 
-⚠️ YOU IMPLEMENT every method body marked TODO.
-   The signatures, docstrings, and the LedgerRepository's append-only
-   guarantee are already in place — do not change them.
+import pytest
+import sqlite3
 
-Conventions:
-  - Always use parameterized queries (`?` placeholders) — NEVER f-string SQL.
-  - Money values are persisted as TEXT using `money.to_storage()`.
-  - Dates are persisted as ISO strings (`date.isoformat()`).
-"""
-
-from __future__ import annotations
-
-from datetime import date, datetime
-from decimal import Decimal
-from typing import Optional
-
-from billing_engine.db.database import Database
 from billing_engine.money import Money
+
 from billing_engine.models import (
     Customer,
     Plan, PricingType, BillingPeriod,
@@ -32,248 +17,322 @@ from billing_engine.models import (
 
 
 # ============================================================
-# CUSTOMERS
+# CustomerRepository
 # ============================================================
-class CustomerRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestCustomerRepository:
+    def test_add_assigns_id(self, db):
+        repo = CustomerRepository(db)
+        c = repo.add(Customer(id=None, name="Alice", email="a@x.com", country_code="IN"))
+        assert c.id is not None
+        assert c.name == "Alice"
 
-    def add(self, customer: Customer) -> Customer:
-        """Insert and return the customer with `id` populated."""
-        # TODO Day 2
-        raise NotImplementedError("Day 2: implement CustomerRepository.add")
+    def test_get_returns_inserted(self, db):
+        repo = CustomerRepository(db)
+        added = repo.add(Customer(None, "Alice", "a@x.com", "IN"))
+        got = repo.get(added.id)
+        assert got is not None
+        assert got.email == "a@x.com"
 
-    def get(self, customer_id: int) -> Optional[Customer]:
-        # TODO Day 2
-        raise NotImplementedError("Day 2: implement CustomerRepository.get")
+    def test_get_missing_returns_none(self, db):
+        assert CustomerRepository(db).get(9999) is None
 
-    def find_by_email(self, email: str) -> Optional[Customer]:
-        # TODO Day 2
-        raise NotImplementedError("Day 2: implement CustomerRepository.find_by_email")
+    def test_find_by_email(self, db):
+        repo = CustomerRepository(db)
+        repo.add(Customer(None, "Alice", "a@x.com", "IN"))
+        assert repo.find_by_email("a@x.com").name == "Alice"
 
-    def list_all(self) -> list[Customer]:
-        # TODO Day 2
-        raise NotImplementedError("Day 2: implement CustomerRepository.list_all")
+    def test_find_by_email_missing_returns_none(self, db):
+        assert CustomerRepository(db).find_by_email("nope@x.com") is None
 
+    def test_duplicate_email_rejected(self, db):
+        repo = CustomerRepository(db)
+        repo.add(Customer(None, "Alice", "a@x.com", "IN"))
+        with pytest.raises(sqlite3.IntegrityError):
+            repo.add(Customer(None, "Bob", "a@x.com", "DE"))
 
-# ============================================================
-# PLANS  +  PLAN TIERS
-# ============================================================
-class PlanRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def add(self, plan: Plan) -> Plan:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement PlanRepository.add")
-
-    def get(self, plan_id: int) -> Optional[Plan]:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement PlanRepository.get")
-
-    def list_all(self) -> list[Plan]:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement PlanRepository.list_all")
-
-
-class PlanTierRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def add(self, plan_id: int, from_units: int, to_units: Optional[int], unit_price: Money) -> int:
-        """Insert a tier; return new id."""
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement PlanTierRepository.add")
-
-    def list_for_plan(self, plan_id: int, currency: str) -> list[tuple[int, Optional[int], Money]]:
-        """Return [(from_units, to_units, unit_price)] ordered by from_units.
-
-        Currency is passed in (the plan_tiers table stores only the amount;
-        currency lives on the parent plan).
-        """
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement PlanTierRepository.list_for_plan")
+    def test_list_all(self, db):
+        repo = CustomerRepository(db)
+        repo.add(Customer(None, "Alice", "a@x.com", "IN"))
+        repo.add(Customer(None, "Bob", "b@x.com", "DE"))
+        assert len(repo.list_all()) == 2
 
 
 # ============================================================
-# DISCOUNTS
+# PlanRepository + PlanTierRepository
 # ============================================================
-class DiscountRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestPlanRepository:
+    def test_add_and_get(self, db):
+        repo = PlanRepository(db)
+        p = repo.add(Plan(
+            id=None, name="Pro", pricing_type=PricingType.FLAT,
+            billing_period=BillingPeriod.MONTHLY, currency="INR",
+        ))
+        assert p.id is not None
+        assert repo.get(p.id).name == "Pro"
 
-    def add(self, code: str, discount_type: str, value: str, currency: Optional[str] = None) -> int:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement DiscountRepository.add")
-
-    def get_by_code(self, code: str) -> Optional[dict]:
-        """Return raw row as dict, or None. (Discount has no dataclass yet — we use a dict for now.)"""
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement DiscountRepository.get_by_code")
+    def test_list_all(self, db):
+        repo = PlanRepository(db)
+        repo.add(Plan(None, "Pro", PricingType.FLAT, BillingPeriod.MONTHLY, "INR"))
+        repo.add(Plan(None, "Ent", PricingType.FLAT, BillingPeriod.MONTHLY, "INR"))
+        assert len(repo.list_all()) == 2
 
 
-# ============================================================
-# SUBSCRIPTIONS
-# ============================================================
-class SubscriptionRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestPlanTierRepository:
+    def test_add_and_list(self, db):
+        plan = PlanRepository(db).add(Plan(
+            None, "Metered", PricingType.TIERED, BillingPeriod.MONTHLY, "INR",
+        ))
+        tier_repo = PlanTierRepository(db)
+        tier_repo.add(plan.id, 0, 1000, Money("2.00", "INR"))
+        tier_repo.add(plan.id, 1000, None, Money("1.00", "INR"))
 
-    def add(self, subscription: Subscription) -> Subscription:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement SubscriptionRepository.add")
-
-    def get(self, subscription_id: int) -> Optional[Subscription]:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement SubscriptionRepository.get")
-
-    def list_all(self) -> list[Subscription]:
-        """All subscriptions, regardless of status. Used by BillingCycle trial scan."""
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement SubscriptionRepository.list_all")
-
-    def get_due_for_billing(self, as_of: date) -> list[Subscription]:
-        """Subscriptions whose current_period_end <= as_of AND status is ACTIVE.
-        (Hint: trial subscriptions whose trial_end <= as_of should also become billable —
-         either handle that here or transition them to ACTIVE first in BillingCycle.)
-        """
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement SubscriptionRepository.get_due_for_billing")
-
-    def update_period(self, subscription_id: int, new_start: date, new_end: date) -> None:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement SubscriptionRepository.update_period")
-
-    def update_status(
-        self,
-        subscription_id: int,
-        new_status: SubscriptionStatus,
-        past_due_since: Optional[date] = None,
-    ) -> None:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement SubscriptionRepository.update_status")
-
-    def update_plan(self, subscription_id: int, new_plan_id: int) -> None:
-        """Switch the subscription to a different plan (used by upgrade flow)."""
-        # TODO Day 4.
-        raise NotImplementedError("Day 4: implement SubscriptionRepository.update_plan")
+        tiers = tier_repo.list_for_plan(plan.id, "INR")
+        assert len(tiers) == 2
+        assert tiers[0] == (0, 1000, Money("2.00", "INR"))
+        assert tiers[1] == (1000, None, Money("1.00", "INR"))
 
 
 # ============================================================
-# USAGE
+# DiscountRepository
 # ============================================================
-class UsageRecordRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestDiscountRepository:
+    def test_add_and_get(self, db):
+        repo = DiscountRepository(db)
+        did = repo.add("HALF", "PERCENT", "0.50")
+        row = repo.get_by_code("HALF")
+        assert row is not None
+        assert row["id"] == did
+        assert row["value"] == "0.50"
 
-    def add(self, subscription_id: int, metric: str, quantity: int) -> int:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement UsageRecordRepository.add")
-
-    def sum_for_period(
-        self, subscription_id: int, metric: str, period_start: date, period_end: date
-    ) -> int:
-        # TODO Day 2: SELECT COALESCE(SUM(quantity), 0) ...
-        raise NotImplementedError("Day 2: implement UsageRecordRepository.sum_for_period")
+    def test_missing_returns_none(self, db):
+        assert DiscountRepository(db).get_by_code("nope") is None
 
 
 # ============================================================
-# INVOICES + LINE ITEMS
+# SubscriptionRepository
 # ============================================================
-class InvoiceRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestSubscriptionRepository:
+    def _setup(self, db) -> tuple[int, int]:
+        c = CustomerRepository(db).add(Customer(None, "A", "a@x.com", "IN"))
+        p = PlanRepository(db).add(
+            Plan(None, "P", PricingType.FLAT, BillingPeriod.MONTHLY, "INR")
+        )
+        return c.id, p.id
 
-    def add(self, invoice: Invoice) -> Invoice:
-        """Insert invoice (NOT line items — that's the other repo).
+    def test_add_and_get(self, db):
+        cid, pid = self._setup(db)
+        repo = SubscriptionRepository(db)
+        s = repo.add(Subscription(
+            None, cid, pid, SubscriptionStatus.ACTIVE,
+            date(2026, 1, 1), date(2026, 2, 1),
+        ))
+        assert s.id is not None
+        got = repo.get(s.id)
+        assert got.status == SubscriptionStatus.ACTIVE
+        assert got.current_period_start == date(2026, 1, 1)
 
-        Must respect the UNIQUE(subscription_id, period_start) constraint.
-        If a duplicate is attempted, raise sqlite3.IntegrityError naturally
-        (caller is responsible for handling it — this gives idempotency).
-        """
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceRepository.add")
+    def test_get_due_for_billing(self, db):
+        cid, pid = self._setup(db)
+        repo = SubscriptionRepository(db)
+        repo.add(Subscription(
+            None, cid, pid, SubscriptionStatus.ACTIVE,
+            date(2026, 1, 1), date(2026, 2, 1),
+        ))
+        repo.add(Subscription(
+            None, cid, pid, SubscriptionStatus.ACTIVE,
+            date(2026, 2, 1), date(2026, 3, 1),    # not yet due on Feb 1 — period_end>2026-02-01? 
+        ))
+        # On 2026-02-01: first sub's period_end <= 2026-02-01 → due
+        due = repo.get_due_for_billing(date(2026, 2, 1))
+        assert len(due) == 1
+        assert due[0].current_period_start == date(2026, 1, 1)
 
-    def get(self, invoice_id: int) -> Optional[Invoice]:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceRepository.get")
+    def test_trial_subs_excluded_from_due(self, db):
+        cid, pid = self._setup(db)
+        repo = SubscriptionRepository(db)
+        repo.add(Subscription(
+            None, cid, pid, SubscriptionStatus.TRIAL,
+            date(2026, 1, 1), date(2026, 2, 1),
+            trial_end=date(2026, 1, 15),
+        ))
+        assert repo.get_due_for_billing(date(2026, 2, 1)) == []
 
-    def count_for_subscription(self, subscription_id: int) -> int:
-        """Used by FirstMonthFree discount."""
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceRepository.count_for_subscription")
+    def test_update_period(self, db):
+        cid, pid = self._setup(db)
+        repo = SubscriptionRepository(db)
+        s = repo.add(Subscription(
+            None, cid, pid, SubscriptionStatus.ACTIVE,
+            date(2026, 1, 1), date(2026, 2, 1),
+        ))
+        repo.update_period(s.id, date(2026, 2, 1), date(2026, 3, 1))
+        got = repo.get(s.id)
+        assert got.current_period_start == date(2026, 2, 1)
+        assert got.current_period_end == date(2026, 3, 1)
 
-    def mark_paid(self, invoice_id: int) -> None:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceRepository.mark_paid")
+    def test_update_status(self, db):
+        cid, pid = self._setup(db)
+        repo = SubscriptionRepository(db)
+        s = repo.add(Subscription(
+            None, cid, pid, SubscriptionStatus.TRIAL,
+            date(2026, 1, 1), date(2026, 2, 1),
+            trial_end=date(2026, 1, 15),
+        ))
+        repo.update_status(s.id, SubscriptionStatus.ACTIVE)
+        assert repo.get(s.id).status == SubscriptionStatus.ACTIVE
 
-    def mark_failed(self, invoice_id: int) -> None:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceRepository.mark_failed")
-
-    def set_pdf_path(self, invoice_id: int, path: str) -> None:
-        # TODO Day 4.
-        raise NotImplementedError("Day 4: implement InvoiceRepository.set_pdf_path")
-
-
-class InvoiceLineItemRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def add(self, line_item: InvoiceLineItem) -> InvoiceLineItem:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceLineItemRepository.add")
-
-    def list_for_invoice(self, invoice_id: int) -> list[InvoiceLineItem]:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement InvoiceLineItemRepository.list_for_invoice")
+    def test_list_all(self, db):
+        cid, pid = self._setup(db)
+        repo = SubscriptionRepository(db)
+        repo.add(Subscription(None, cid, pid, SubscriptionStatus.TRIAL,
+                              date(2026, 1, 1), date(2026, 2, 1),
+                              trial_end=date(2026, 1, 15)))
+        repo.add(Subscription(None, cid, pid, SubscriptionStatus.ACTIVE,
+                              date(2026, 1, 1), date(2026, 2, 1)))
+        assert len(repo.list_all()) == 2
 
 
 # ============================================================
-# LEDGER — APPEND-ONLY (do not implement update/delete)
+# UsageRecordRepository
 # ============================================================
-class LedgerRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestUsageRecordRepository:
+    def _setup(self, db) -> int:
+        c = CustomerRepository(db).add(Customer(None, "A", "a@x.com", "IN"))
+        p = PlanRepository(db).add(
+            Plan(None, "P", PricingType.USAGE, BillingPeriod.MONTHLY, "INR")
+        )
+        s = SubscriptionRepository(db).add(Subscription(
+            None, c.id, p.id, SubscriptionStatus.ACTIVE,
+            date(2026, 1, 1), date(2026, 2, 1),
+        ))
+        return s.id
 
-    def add(self, entry: LedgerEntry) -> LedgerEntry:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement LedgerRepository.add")
+    def test_sum_for_period(self, db):
+        sid = self._setup(db)
+        repo = UsageRecordRepository(db)
+        repo.add(sid, "calls", 100)
+        repo.add(sid, "calls", 250)
+        repo.add(sid, "calls", 50)
+        assert repo.sum_for_period(sid, "calls", date(2026, 1, 1), date(2026, 2, 1)) == 400
 
-    def list_for_customer(self, customer_id: int) -> list[LedgerEntry]:
-        # TODO Day 2.
-        raise NotImplementedError("Day 2: implement LedgerRepository.list_for_customer")
-
-    # ✅ These two methods are intentionally implemented to REJECT — do not override.
-    def update(self, *args, **kwargs):
-        raise NotImplementedError("Ledger is append-only. Post a reversing entry instead.")
-
-    def delete(self, *args, **kwargs):
-        raise NotImplementedError("Ledger is append-only. Post a reversing entry instead.")
+    def test_sum_empty_returns_zero(self, db):
+        sid = self._setup(db)
+        repo = UsageRecordRepository(db)
+        assert repo.sum_for_period(sid, "calls", date(2026, 1, 1), date(2026, 2, 1)) == 0
 
 
 # ============================================================
-# PAYMENT ATTEMPTS
+# InvoiceRepository (idempotency!) + LineItemRepository
 # ============================================================
-class PaymentAttemptRepository:
-    def __init__(self, db: Database) -> None:
-        self.db = db
+class TestInvoiceRepository:
+    def _setup(self, db) -> int:
+        c = CustomerRepository(db).add(Customer(None, "A", "a@x.com", "IN"))
+        p = PlanRepository(db).add(
+            Plan(None, "P", PricingType.FLAT, BillingPeriod.MONTHLY, "INR")
+        )
+        s = SubscriptionRepository(db).add(Subscription(
+            None, c.id, p.id, SubscriptionStatus.ACTIVE,
+            date(2026, 1, 1), date(2026, 2, 1),
+        ))
+        return s.id
 
-    def add(
-        self,
-        invoice_id: int,
-        attempt_no: int,
-        status: str,
-        failure_reason: Optional[str],
-        next_retry_at: Optional[datetime],
-    ) -> int:
-        # TODO Day 3.
-        raise NotImplementedError("Day 3: implement PaymentAttemptRepository.add")
+    def _make_invoice(self, subscription_id: int) -> Invoice:
+        return Invoice(
+            id=None, subscription_id=subscription_id,
+            period_start=date(2026, 1, 1), period_end=date(2026, 2, 1),
+            subtotal=Money("100", "INR"), discount_total=Money("0", "INR"),
+            tax_total=Money("18", "INR"), total=Money("118", "INR"),
+            status=InvoiceStatus.ISSUED,
+        )
 
-    def list_for_invoice(self, invoice_id: int) -> list[dict]:
-        # TODO Day 3.
-        raise NotImplementedError("Day 3: implement PaymentAttemptRepository.list_for_invoice")
+    def test_add_assigns_id(self, db):
+        sid = self._setup(db)
+        repo = InvoiceRepository(db)
+        saved = repo.add(self._make_invoice(sid))
+        assert saved.id is not None
 
-    def count_for_invoice(self, invoice_id: int) -> int:
-        # TODO Day 3.
-        raise NotImplementedError("Day 3: implement PaymentAttemptRepository.count_for_invoice")
+    def test_duplicate_period_rejected(self, db):
+        sid = self._setup(db)
+        repo = InvoiceRepository(db)
+        repo.add(self._make_invoice(sid))
+        with pytest.raises(sqlite3.IntegrityError):
+            repo.add(self._make_invoice(sid))
+
+    def test_count_for_subscription(self, db):
+        sid = self._setup(db)
+        repo = InvoiceRepository(db)
+        assert repo.count_for_subscription(sid) == 0
+        repo.add(self._make_invoice(sid))
+        assert repo.count_for_subscription(sid) == 1
+
+    def test_mark_paid(self, db):
+        sid = self._setup(db)
+        repo = InvoiceRepository(db)
+        saved = repo.add(self._make_invoice(sid))
+        repo.mark_paid(saved.id)
+        assert repo.get(saved.id).status == InvoiceStatus.PAID
+
+    def test_get_preserves_money_values(self, db):
+        sid = self._setup(db)
+        repo = InvoiceRepository(db)
+        saved = repo.add(self._make_invoice(sid))
+        got = repo.get(saved.id)
+        assert got.total == Money("118.00", "INR")
+
+
+class TestInvoiceLineItemRepository:
+    def test_add_and_list(self, db):
+        # Need an invoice first
+        c = CustomerRepository(db).add(Customer(None, "A", "a@x.com", "IN"))
+        p = PlanRepository(db).add(Plan(None, "P", PricingType.FLAT, BillingPeriod.MONTHLY, "INR"))
+        s = SubscriptionRepository(db).add(Subscription(
+            None, c.id, p.id, SubscriptionStatus.ACTIVE,
+            date(2026, 1, 1), date(2026, 2, 1),
+        ))
+        inv = InvoiceRepository(db).add(Invoice(
+            id=None, subscription_id=s.id,
+            period_start=date(2026, 1, 1), period_end=date(2026, 2, 1),
+            subtotal=Money("100", "INR"), discount_total=Money("0", "INR"),
+            tax_total=Money("18", "INR"), total=Money("118", "INR"),
+            status=InvoiceStatus.ISSUED,
+        ))
+
+        li_repo = InvoiceLineItemRepository(db)
+        li_repo.add(InvoiceLineItem(None, inv.id, "Base", Money("100", "INR"), LineItemKind.BASE))
+        li_repo.add(InvoiceLineItem(None, inv.id, "Tax", Money("18", "INR"), LineItemKind.TAX))
+
+        items = li_repo.list_for_invoice(inv.id)
+        assert len(items) == 2
+        assert items[0].kind == LineItemKind.BASE
+
+
+# ============================================================
+# LedgerRepository — APPEND-ONLY
+# ============================================================
+class TestLedgerRepositoryAppendOnly:
+    def test_update_raises(self, db):
+        with pytest.raises(NotImplementedError, match="append-only"):
+            LedgerRepository(db).update(entry_id=1, amount=Money("1", "INR"))
+
+    def test_delete_raises(self, db):
+        with pytest.raises(NotImplementedError, match="append-only"):
+            LedgerRepository(db).delete(1)
+
+    def test_add_assigns_id(self, db):
+        c = CustomerRepository(db).add(Customer(None, "A", "a@x.com", "IN"))
+        repo = LedgerRepository(db)
+        entry = repo.add(LedgerEntry(
+            id=None, invoice_id=None, customer_id=c.id,
+            amount=Money("100", "INR"), direction=LedgerDirection.DEBIT,
+            reason="Test",
+        ))
+        assert entry.id is not None
+
+    def test_list_for_customer_returns_entries(self, db):
+        c = CustomerRepository(db).add(Customer(None, "A", "a@x.com", "IN"))
+        repo = LedgerRepository(db)
+        repo.add(LedgerEntry(None, None, c.id, Money("100", "INR"),
+                             LedgerDirection.DEBIT, "Invoice"))
+        repo.add(LedgerEntry(None, None, c.id, Money("100", "INR"),
+                             LedgerDirection.CREDIT, "Payment"))
+        entries = repo.list_for_customer(c.id)
+        assert len(entries) == 2
