@@ -11,9 +11,16 @@ from billing_engine.discounts.base import Discount, DiscountContext
 
 class FixedAmountDiscount(Discount):
     def __init__(self, amount: Money) -> None:
-        # TODO Day 1
-        raise NotImplementedError("Day 1: implement FixedAmountDiscount.__init__")
+        if not isinstance(amount, Money):
+            raise TypeError(
+                f"Expected Money, got {type(amount).__name__}"
+            )
+
+        self.amount = amount
 
     def apply(self, subtotal: Money, context: DiscountContext) -> Money:
-        # TODO Day 1
-        raise NotImplementedError("Day 1: implement FixedAmountDiscount.apply")
+        # Cap the discount at the subtotal amount
+        if self.amount > subtotal:
+            return subtotal
+
+        return self.amount
