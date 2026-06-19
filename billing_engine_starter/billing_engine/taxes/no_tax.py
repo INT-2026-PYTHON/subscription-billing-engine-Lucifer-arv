@@ -9,5 +9,6 @@ from billing_engine.taxes.base import TaxCalculator, TaxContext, TaxBreakdown
 class NoTax(TaxCalculator):
     def apply(self, taxable: Money, context: TaxContext) -> TaxBreakdown:
         return TaxBreakdown(
-            tax_amount=Money(0, taxable.currency)
-        )
+    components=[],
+    total=Money.zero(taxable.currency),
+)

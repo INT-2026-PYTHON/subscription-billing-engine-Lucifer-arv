@@ -27,8 +27,8 @@ class VATCalculator(TaxCalculator):
         percent = self.rate * Decimal("100")
 
         return TaxBreakdown(
-            components=[
-                (f"VAT {percent}%", vat)
-            ],
-            total_tax=vat,
-        )
+    components=[
+        (f"VAT {percent}%", vat)
+    ],
+    total=vat,
+)

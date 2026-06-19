@@ -65,6 +65,6 @@ class GSTCalculator(TaxCalculator):
             total = igst_amount
 
         return TaxBreakdown(
-            components=components,
-            total_tax=total,
-        )
+    components=components,
+    total=total,
+)

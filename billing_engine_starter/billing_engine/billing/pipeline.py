@@ -37,6 +37,74 @@ def build_invoice(
     period_end: date,
     invoice_count_so_far: int,
 ) -> Invoice:
+   
     """Pure function. Returns an Invoice (id=None, status=DRAFT) ready to be persisted."""
-    # TODO Day 2
-    raise NotImplementedError("Day 2: implement build_invoice")
+
+    # 1. Base charge
+    subtotal = strategy.calculate(usage_quantity)
+
+    # 2. Discount
+    if discount is not None:
+        discount_total = discount.apply(
+            subtotal,
+            DiscountContext(invoice_count_so_far=invoice_count_so_far),
+        )
+    else:
+        discount_total = Money.zero(subtotal.currency)
+
+    # 3. Taxable amount
+    taxable = subtotal - discount_total
+
+    # 4. Tax
+    tax_breakdown = tax_calc.apply(taxable, tax_context)
+    tax_total = tax_breakdown.total
+
+    # 5. Grand total
+    total = taxable + tax_total
+
+    # Build line items
+    line_items = [
+        InvoiceLineItem(
+            id=None,
+            invoice_id=None,
+            description="Base charge",
+            amount=subtotal,
+            kind=LineItemKind.BASE,
+        )
+    ]
+
+    if not discount_total.is_zero():
+        line_items.append(
+            InvoiceLineItem(
+                id=None,
+                invoice_id=None,
+                description="Discount",
+                amount=-discount_total,
+                kind=LineItemKind.DISCOUNT,
+            )
+        )
+
+    for name, amount in tax_breakdown.components:
+        line_items.append(
+            InvoiceLineItem(
+                id=None,
+                invoice_id=None,
+                description=name,
+                amount=amount,
+                kind=LineItemKind.TAX,
+            )
+        )
+
+    return Invoice(
+        id=None,
+        subscription_id=subscription.id,
+        period_start=period_start,
+        period_end=period_end,
+        subtotal=subtotal,
+        discount_total=discount_total,
+        tax_total=tax_total,
+        total=total,
+        status=InvoiceStatus.DRAFT,
+        line_items=line_items,
+    )
+    
