@@ -19,13 +19,35 @@ class TieredPricing(PricingStrategy):
         if not tiers:
             raise ValueError("tiers cannot be empty")
 
+        currency = tiers[0].unit_price.currency
+
+        for i, tier in enumerate(tiers):
+            if tier.unit_price.currency != currency:
+                raise ValueError("all tiers must use the same currency")
+
+            if tier.to_units is not None and tier.to_units <= tier.from_units:
+                raise ValueError("invalid tier range")
+
+            if i > 0:
+                prev = tiers[i - 1]
+
+                if prev.to_units is None:
+                    raise ValueError("open-ended tier must be last")
+
+                if prev.to_units != tier.from_units:
+                    raise ValueError("tiers must be contiguous")
+
+        if tiers[-1].to_units is not None:
+            raise ValueError("top tier must be open-ended")
+
         self.tiers = tiers
 
     def calculate(self, quantity: int) -> Money:
         if quantity < 0:
             raise ValueError("quantity cannot be negative")
 
-        total = Money(0)
+        currency = self.tiers[0].unit_price.currency
+        total = Money("0", currency)
 
         for tier in self.tiers:
             if quantity <= tier.from_units:

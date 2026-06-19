@@ -1,12 +1,10 @@
 """
 PaymentGateway — abstract + two mock implementations.
-
-In real life this would talk to Stripe / Razorpay / Adyen. For the project
-we use mocks so tests are deterministic and the demo never hits the network.
 """
 
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
@@ -26,39 +24,34 @@ class PaymentGateway(ABC):
         raise NotImplementedError
 
 
-# ----------------------------------------------------------------
-# Scripted — for deterministic tests
-# ----------------------------------------------------------------
 class ScriptedGateway(PaymentGateway):
-    """Returns pre-set results from a queue. Used in tests.
-
-    Example:
-        gateway = ScriptedGateway([
-            PaymentResult(False, "INSUFFICIENT_FUNDS"),
-            PaymentResult(False, "INSUFFICIENT_FUNDS"),
-            PaymentResult(True),
-        ])
-    """
+    """Returns pre-set results from a queue. Used in tests."""
 
     def __init__(self, results: list[PaymentResult]) -> None:
-        # TODO Day 3
-        raise NotImplementedError("Day 3: implement ScriptedGateway.__init__")
+        self.results = list(results)
+        self.index = 0
 
     def charge(self, invoice: Invoice) -> PaymentResult:
-        # TODO Day 3
-        raise NotImplementedError("Day 3: implement ScriptedGateway.charge")
+        if self.index >= len(self.results):
+            raise IndexError("No more scripted payment results available")
+
+        result = self.results[self.index]
+        self.index += 1
+        return result
 
 
-# ----------------------------------------------------------------
-# Fake-random — for the CLI demo
-# ----------------------------------------------------------------
 class FakeRandomGateway(PaymentGateway):
     """Succeeds at a configurable rate; seeded for reproducibility."""
 
     def __init__(self, success_rate: float = 0.7, seed: Optional[int] = None) -> None:
-        # TODO Day 3
-        raise NotImplementedError("Day 3: implement FakeRandomGateway.__init__")
+        if success_rate < 0 or success_rate > 1:
+            raise ValueError("success_rate must be between 0 and 1")
+
+        self.success_rate = success_rate
+        self.random = random.Random(seed)
 
     def charge(self, invoice: Invoice) -> PaymentResult:
-        # TODO Day 3
-        raise NotImplementedError("Day 3: implement FakeRandomGateway.charge")
+        if self.random.random() < self.success_rate:
+            return PaymentResult(True)
+
+        return PaymentResult(False, "DECLINED")

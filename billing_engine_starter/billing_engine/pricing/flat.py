@@ -17,6 +17,9 @@ class FlatRate(PricingStrategy):
                 f"Expected Money, got {type(amount).__name__}"
             )
 
+        if amount.amount < 0:
+            raise ValueError("FlatRate amount cannot be negative")
+
         self.amount = amount
 
     def calculate(self, quantity: int) -> Money:
