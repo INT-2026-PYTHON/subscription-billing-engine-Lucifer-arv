@@ -10,6 +10,8 @@ class UsageBased(PricingStrategy):
             raise TypeError(
                 f"Expected Money, got {type(unit_price).__name__}"
             )
+        if unit_price.amount < 0:
+            raise ValueError("unit price cannot be negative")
 
         self.unit_price = unit_price
 

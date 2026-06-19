@@ -48,5 +48,38 @@ def compute_proration(
     tax_context: TaxContext,
 ) -> ProrationResult:
     """Pure function. STRETCH — implement only after Days 1+2 are green."""
-    # TODO Day 4
-    raise NotImplementedError("Day 4: implement compute_proration")
+    if old_plan_price.currency != new_plan_price.currency:
+        raise ValueError("old and new plan prices must use the same currency")
+
+    if switch_date < period_start or switch_date > period_end:
+        raise ValueError("switch_date must be within the billing period")
+
+    total_days = (period_end - period_start).days
+    if total_days <= 0:
+        raise ValueError("period_end must be after period_start")
+
+    used_days = (switch_date - period_start).days
+    remaining_days = total_days - used_days
+
+    ratio = Decimal(remaining_days) / Decimal(total_days)
+
+    credit_amount = (old_plan_price * ratio).rounded()
+    charge_amount = (new_plan_price * ratio).rounded()
+
+    credit_tax = tax_calc.apply(
+        credit_amount,
+        tax_context,
+    ).total.rounded()
+
+    charge_tax = tax_calc.apply(
+        charge_amount,
+        tax_context,
+    ).total.rounded()
+
+
+    return ProrationResult(
+        credit_amount=credit_amount,
+        charge_amount=charge_amount,
+        credit_tax=credit_tax,
+        charge_tax=charge_tax,
+    )

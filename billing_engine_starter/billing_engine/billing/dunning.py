@@ -29,7 +29,7 @@ from billing_engine.db import (
     InvoiceRepository, LedgerRepository, SubscriptionRepository,
     PaymentAttemptRepository,
 )
-from billing_engine.models import Invoice, LedgerEntry, LedgerDirection, SubscriptionStatus
+from billing_engine.models import Invoice, LedgerEntry, LedgerDirection, SubscriptionStatus, InvoiceStatus
 from billing_engine.payments.gateway import PaymentGateway, PaymentResult
 
 
@@ -72,12 +72,69 @@ class DunningProcess:
 
     def attempt(self, invoice: Invoice, customer_id: int, now: datetime) -> DunningOutcome:
         """Try once. Record the attempt. Return the resulting outcome."""
-        # TODO Day 4
-        raise NotImplementedError("Day 4: implement DunningProcess.attempt")
+        attempt_no = self.attempt_repo.count_for_invoice(invoice.id) + 1
+
+        result = self.gateway.charge(invoice)
+
+        if result.success:
+            self.attempt_repo.add(
+                invoice_id=invoice.id,
+                attempt_no=attempt_no,
+                status="SUCCESS",
+                failure_reason=None,
+                next_retry_at=None,
+            )
+            self.invoice_repo.mark_paid(invoice.id)
+
+            return DunningOutcome(
+                state=DunningState.SUCCEEDED,
+                attempt_no=attempt_no,
+                next_retry_at=None,
+            )
+
+        if attempt_no >= MAX_ATTEMPTS:
+            self.attempt_repo.add(
+                invoice_id=invoice.id,
+                attempt_no=attempt_no,
+                status="FAILED",
+                failure_reason=result.failure_reason,
+                next_retry_at=None,
+            )
+            with self.invoice_repo.db.connect() as conn:
+                conn.execute(
+                    "UPDATE invoices SET status=? WHERE id=?",
+                    (InvoiceStatus.FAILED.value, invoice.id),
+                )
+            self.subscription_repo.update_status(
+                invoice.subscription_id,
+                 SubscriptionStatus.PAST_DUE,
+            )
+
+            return DunningOutcome(
+                state=DunningState.FAILED_FINAL,
+                attempt_no=attempt_no,
+                next_retry_at=None,
+            )
+
+        delay_days = RETRY_DELAYS_DAYS[attempt_no]
+        next_retry_at = now + timedelta(days=delay_days)
+
+        self.attempt_repo.add(
+            invoice_id=invoice.id,
+            attempt_no=attempt_no,
+            status="FAILED",
+            failure_reason=result.failure_reason,
+            next_retry_at=next_retry_at,
+        )
+
+        return DunningOutcome(
+            state=DunningState.RETRYING,
+            attempt_no=attempt_no,
+            next_retry_at=next_retry_at,
+        )
 
     # --------------------------------------------------------
     @staticmethod
     def should_cancel(past_due_since: date, today: date, grace_days: int = 7) -> bool:
         """Helper used by BillingCycle to decide PAST_DUE → CANCELLED."""
-        # TODO Day 4
-        raise NotImplementedError("Day 4: implement DunningProcess.should_cancel")
+        return (today - past_due_since).days >= grace_days

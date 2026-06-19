@@ -24,7 +24,7 @@ class Freemium(PricingStrategy):
 
     def calculate(self, quantity: int) -> Money:
         if quantity <= self.free_quota:
-            return Money(0)
+            return Money("0", self.overage_strategy.calculate(0).currency)
 
         overage = quantity - self.free_quota
         return self.overage_strategy.calculate(overage)
